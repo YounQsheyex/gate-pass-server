@@ -4,7 +4,8 @@ import { HttpError } from "../../middleware/error.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { storeImage } from "../../lib/imageStorage.js";
 
-const MAX_BYTES = 5 * 1024 * 1024;
+// 4 MB: uploads pass through the frontend, and Vercel rejects request bodies over 4.5 MB.
+const MAX_BYTES = 4 * 1024 * 1024;
 
 /** Identify the image type from its first bytes, not the (spoofable) filename or MIME header. */
 function sniffImage(buf: Buffer): "jpg" | "png" | "webp" | "gif" | null {
@@ -24,7 +25,7 @@ adminUploadsRouter.post("/", requireAuth("admin"), (req, res, next) => {
   upload.single("file")(req, res, async (err: unknown) => {
     try {
       if (err instanceof multer.MulterError) {
-        throw new HttpError(400, err.code === "LIMIT_FILE_SIZE" ? "Image is too large (max 5 MB)." : err.message);
+        throw new HttpError(400, err.code === "LIMIT_FILE_SIZE" ? "Image is too large (max 4 MB)." : err.message);
       }
       if (err) throw err;
       if (!req.file) throw new HttpError(400, "Choose an image to upload.");

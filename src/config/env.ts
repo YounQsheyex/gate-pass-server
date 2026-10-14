@@ -12,6 +12,11 @@ const schema = z.object({
   REDIS_URL: z.string().min(1),
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
   TRUST_PROXY: z.coerce.number().default(0),
+  /**
+   * Shared with the frontend. When the frontend forwards a request it sends the visitor's IP plus
+   * this secret, so rate limits apply per visitor instead of to the frontend server.
+   */
+  PROXY_SECRET: z.string().min(16, "PROXY_SECRET should be at least 16 random characters").optional().or(z.literal("").transform(() => undefined)),
 
   /** Name printed on tickets and in emails. */
   BRAND_NAME: z.string().default("Gatepass"),

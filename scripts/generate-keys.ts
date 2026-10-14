@@ -12,3 +12,4 @@ const der = privateKey.export({ format: "der", type: "pkcs8" });
 
 console.log(`JWT_SECRET=${randomBytes(48).toString("base64url")}`);
 console.log(`TICKET_SIGNING_KEY=${der.toString("base64")}`);
+console.log(`PROXY_SECRET=${randomBytes(24).toString("base64url")}   # also set this on the frontend`);

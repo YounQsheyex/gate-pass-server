@@ -1,4 +1,6 @@
-import { rateLimit, type Options } from "express-rate-limit";
+import type { Request } from "express";
+import { rateLimit, ipKeyGenerator, type Options } from "express-rate-limit";
+import { env } from "../config/env.js";
 import { RedisStore, type RedisReply } from "rate-limit-redis";
 import { redis } from "../lib/redis.js";
 
@@ -44,8 +46,25 @@ function store(prefix: string) {
   });
 }
 
+/**
+ * The visitor's IP. Requests forwarded by our own frontend carry the real visitor IP in
+ * x-client-ip, trusted only when they also carry the shared PROXY_SECRET; anything else
+ * uses the connection's IP (with TRUST_PROXY handling the host's load balancer).
+ */
+let warnedNoSecret = false;
+export function visitorIp(req: Request): string {
+  const forwarded = req.get("x-client-ip");
+  if (forwarded && env.PROXY_SECRET && req.get("x-proxy-secret") === env.PROXY_SECRET) return forwarded;
+  if (req.get("x-client-ip") && !env.PROXY_SECRET && !warnedNoSecret) {
+    warnedNoSecret = true;
+    console.warn("[rate-limit] Requests are coming through the frontend, but PROXY_SECRET isn't set on both apps, so every visitor shares one rate limit. Set the same PROXY_SECRET on the frontend and the backend.");
+  }
+  return req.ip ?? "unknown";
+}
+
 function limiter(prefix: string, opts: Partial<Options>) {
   return rateLimit({
+    keyGenerator: (req) => ipKeyGenerator(visitorIp(req)),
     standardHeaders: "draft-8",
     legacyHeaders: false,
     store: store(prefix),
