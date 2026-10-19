@@ -16,15 +16,19 @@ type EventLike = {
   startsAt: Date;
   endsAt?: Date | null;
   coverImageUrl?: string | null;
+  soldOut?: boolean | null;
+  showTicketsLeft?: boolean | null;
+  isMain?: boolean | null;
 };
 
-function publicTicketTypes(types: TicketTypeDoc[]) {
+/** Tickets a buyer can still get: none if the admin marked the type or the whole event sold out. */
+function publicTicketTypes(types: TicketTypeDoc[], eventSoldOut = false) {
   return types.map((t) => ({
     id: String(t._id),
     name: t.name,
     description: t.description,
     price: t.price,
-    available: Math.max(0, t.quantity - t.sold),
+    available: eventSoldOut || t.soldOut ? 0 : Math.max(0, t.quantity - t.sold),
     maxPerOrder: t.maxPerOrder,
   }));
 }
@@ -40,7 +44,7 @@ export function publicVenue(e: { venue: string; venueHidden?: boolean | null; ve
 }
 
 function publicEvent(e: EventLike, types: TicketTypeDoc[]) {
-  const tt = publicTicketTypes(types);
+  const tt = publicTicketTypes(types, Boolean(e.soldOut));
   return {
     id: String(e._id),
     title: e.title,
@@ -50,16 +54,18 @@ function publicEvent(e: EventLike, types: TicketTypeDoc[]) {
     endsAt: e.endsAt ?? null,
     coverImageUrl: e.coverImageUrl || null,
     minPrice: tt.length ? Math.min(...tt.map((t) => t.price)) : null,
-    soldOut: tt.length > 0 && tt.every((t) => t.available === 0),
+    soldOut: Boolean(e.soldOut) || (tt.length > 0 && tt.every((t) => t.available === 0)),
+    showTicketsLeft: e.showTicketsLeft !== false,
+    isMain: Boolean(e.isMain),
     /** Totals across ticket types, for "selling fast" badges. */
     ticketsLeft: tt.reduce((n, t) => n + t.available, 0),
     capacity: types.reduce((n, t) => n + t.quantity, 0),
   };
 }
 
-/** Upcoming published events, soonest first. */
+/** Upcoming published events shown on the home page, soonest first. Unfeatured ones are left out. */
 eventsRouter.get("/", async (_req, res) => {
-  const events = await Event.find({ status: "published", startsAt: { $gte: new Date() } })
+  const events = await Event.find({ status: "published", featured: { $ne: false }, startsAt: { $gte: new Date() } })
     .sort({ startsAt: 1 })
     .limit(100);
   const types = await TicketType.find({ event: { $in: events.map((e) => e._id) } });
@@ -77,7 +83,7 @@ eventsRouter.get("/:slug", async (req, res) => {
       ...publicEvent(event, types),
       description: event.description,
       onSale: event.startsAt.getTime() > Date.now(),
-      ticketTypes: publicTicketTypes(types),
+      ticketTypes: publicTicketTypes(types, Boolean(event.soldOut)),
     },
   });
 });

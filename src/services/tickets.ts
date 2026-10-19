@@ -1,8 +1,10 @@
 import { Types } from "mongoose";
 import { HttpError } from "../middleware/error.js";
+import { Event } from "../models/Event.js";
 import { Order, type OrderDoc } from "../models/Order.js";
 import { Ticket, type TicketDoc } from "../models/Ticket.js";
-import { signTicket, verifyTicketToken } from "../lib/ticketToken.js";
+import { timingSafeEqual } from "node:crypto";
+import { entryCodeFor, normalizeEntryCode, signTicket, verifyTicketToken } from "../lib/ticketToken.js";
 import { redis } from "../lib/redis.js";
 
 /** Creates one ticket per seat on a paid order. Running it twice never creates duplicates. */
@@ -44,7 +46,7 @@ export function ticketToken(ticket: TicketDoc): string {
   return signTicket(ticket._id, ticket.event);
 }
 
-/** Short human-readable id printed under the QR, for manual lookups at the gate. */
+/** Short id for finding a ticket in the dashboard. Sequential within an order, so never accepted at the gate. */
 export function ticketShortId(id: Types.ObjectId): string {
   return id.toString().slice(-8).toUpperCase();
 }
@@ -52,7 +54,8 @@ export function ticketShortId(id: Types.ObjectId): string {
 export type CheckinResult =
   | { result: "admitted"; ticket: TicketSummary }
   | { result: "already_used"; ticket: TicketSummary }
-  | { result: "void" | "wrong_event" | "unpaid"; ticket?: TicketSummary }
+  | { result: "void" | "unpaid"; ticket?: TicketSummary }
+  | { result: "wrong_event"; ticket?: TicketSummary; ticketEvent?: { id: string; title: string } }
   | { result: "invalid" };
 
 type TicketSummary = {
@@ -94,13 +97,76 @@ export async function checkIn(opts: {
 
   if (opts.eventId && !verified.eventId.equals(opts.eventId)) {
     const t = await Ticket.findById(verified.ticketId);
-    return { result: "wrong_event", ticket: t ? summary(t) : undefined };
+    if (!t) return { result: "invalid" };
+    return { result: "wrong_event", ticket: summary(t), ticketEvent: await eventRef(t.event) };
   }
 
   const ticket = await Ticket.findById(verified.ticketId);
   // A genuine signature for a ticket we can't find means it was deleted: treat as invalid.
   if (!ticket || !ticket.event.equals(verified.eventId)) return { result: "invalid" };
 
+  return admit(ticket, { ...opts, method: "scan" });
+}
+
+/** "tk-yd0w0 mf6zs", "YD0W0MF6ZS", "TK-YDOWO-MF6ZS" → "TK-YD0W0-MF6ZS" (null if it can't be one). */
+export function normalizeReference(input: string): string | null {
+  let s = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (s.startsWith("TK") && s.length === 12) s = s.slice(2);
+  // Order references use Crockford base32, so letters people commonly mistype map back to digits.
+  s = s.replace(/O/g, "0").replace(/[IL]/g, "1");
+  if (!/^[0-9A-HJKMNP-TV-Z]{10}$/.test(s)) return null;
+  return `TK-${s.slice(0, 5)}-${s.slice(5)}`;
+}
+
+/** The code printed under the QR, typed in at the gate when the QR can't be scanned. */
+export function ticketEntryCode(ticket: { _id: Types.ObjectId }): string {
+  return entryCodeFor(ticket._id);
+}
+
+function sameCode(a: string, b: string) {
+  return a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+/**
+ * Check-in without a camera: the ticket's entry code plus the order reference, both printed
+ * on the ticket. The entry code is derived from the server's private key, so it can't be
+ * guessed or worked out from another ticket, even one in the same order, and the order
+ * reference is random too. A wrong pair always gives the same "invalid" answer, never
+ * revealing which half was wrong.
+ */
+export async function checkInManual(opts: {
+  reference: string;
+  entryCode: string;
+  eventId?: string;
+  staffId: string;
+  dryRun?: boolean;
+}): Promise<CheckinResult> {
+  const reference = normalizeReference(opts.reference);
+  const code = normalizeEntryCode(opts.entryCode);
+  if (!reference || !code) return { result: "invalid" };
+
+  const order = await Order.findOne({ reference }).select("_id").lean();
+  if (!order) return { result: "invalid" };
+  const tickets = await Ticket.find({ order: order._id });
+  const ticket = tickets.find((t) => sameCode(ticketEntryCode(t), code));
+  if (!ticket) return { result: "invalid" };
+
+  if (opts.eventId && !ticket.event.equals(opts.eventId)) {
+    return { result: "wrong_event", ticket: summary(ticket, reference), ticketEvent: await eventRef(ticket.event) };
+  }
+  return admit(ticket, { ...opts, method: "manual" });
+}
+
+/** Which event a ticket is really for, so the gate can switch to it in one tap. */
+async function eventRef(id: Types.ObjectId) {
+  const e = await Event.findById(id).select("title").lean();
+  return e ? { id: String(e._id), title: e.title } : undefined;
+}
+
+async function admit(
+  ticket: TicketDoc,
+  opts: { staffId: string; dryRun?: boolean; method: "scan" | "manual" },
+): Promise<CheckinResult> {
   const order = await Order.findById(ticket.order).select("reference status").lean();
   const ref = order?.reference;
   if (!order || order.status !== "paid") return { result: "unpaid", ticket: summary(ticket, ref) };
@@ -125,7 +191,14 @@ export async function checkIn(opts: {
   try {
     admitted = await Ticket.findOneAndUpdate(
       { _id: ticket._id, status: "valid" },
-      { $set: { status: "used", checkedInAt: new Date(), checkedInBy: new Types.ObjectId(opts.staffId) } },
+      {
+        $set: {
+          status: "used",
+          checkedInAt: new Date(),
+          checkedInBy: new Types.ObjectId(opts.staffId),
+          checkInMethod: opts.method,
+        },
+      },
       { new: true },
     );
   } catch (err) {

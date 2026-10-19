@@ -14,6 +14,8 @@ const ticketSchema = new Schema(
     status: { type: String, enum: TICKET_STATUSES, default: "valid", index: true },
     checkedInAt: { type: Date },
     checkedInBy: { type: Schema.Types.ObjectId, ref: "User" },
+    /** How the ticket was admitted: QR scan or typed in by staff. */
+    checkInMethod: { type: String, enum: ["scan", "manual"] },
   },
   { timestamps: true },
 );

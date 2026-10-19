@@ -4,7 +4,7 @@ import { Event } from "../models/Event.js";
 import type { OrderDoc } from "../models/Order.js";
 import type { TicketDoc } from "../models/Ticket.js";
 import { formatNaira } from "../lib/util.js";
-import { ticketShortId, ticketToken } from "./tickets.js";
+import { ticketEntryCode, ticketShortId, ticketToken } from "./tickets.js";
 import { renderTicketsPdf } from "./ticketPdf.js";
 import { sendMail } from "./mailTransport.js";
 
@@ -42,7 +42,7 @@ export async function sendTicketsEmail(order: OrderDoc, tickets: TicketDoc[]) {
         <div style="font-size:13px;color:#737373">Ticket ${i + 1} of ${qrs.length}</div>
         <div style="font-size:18px;font-weight:600;margin:4px 0">${esc(ticket.ticketTypeName)}</div>
         <img src="${src(i)}" width="240" height="240" alt="Ticket QR code" style="display:block;margin:8px auto" />
-        <div style="font-family:monospace;font-size:13px;color:#525252">#${ticketShortId(ticket._id)}</div>
+        <div style="font-size:13px;color:#525252">Entry code <span style="font-family:monospace;font-weight:600;color:#171717">${ticketEntryCode(ticket)}</span></div>
       </td></tr>`,
       )
       .join("");

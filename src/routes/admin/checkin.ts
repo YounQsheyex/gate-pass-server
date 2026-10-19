@@ -2,9 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { Ticket } from "../../models/Ticket.js";
 import { requireAuth } from "../../middleware/auth.js";
-import { checkinLimiter } from "../../middleware/rateLimit.js";
+import { checkinLimiter, manualCheckinLimiter } from "../../middleware/rateLimit.js";
 import { objectId } from "../../lib/validate.js";
-import { checkIn } from "../../services/tickets.js";
+import { checkIn, checkInManual } from "../../services/tickets.js";
 
 export const checkinRouter = Router();
 checkinRouter.use(requireAuth("admin", "staff"));
@@ -20,6 +20,25 @@ const body = z.object({
 checkinRouter.post("/", checkinLimiter, async (req, res) => {
   const input = body.parse(req.body);
   const result = await checkIn({ ...input, staffId: req.user!.id });
+  res.json(result);
+});
+
+const manualBody = z.object({
+  /** The entry code printed under the QR, e.g. "7KQ2-M9XD". */
+  entryCode: z.string().trim().min(1).max(40),
+  /** The order reference printed on the ticket, e.g. "TK-YD0W0-MF6ZS". */
+  reference: z.string().trim().min(1).max(40),
+  eventId: objectId.optional(),
+  dryRun: z.boolean().optional(),
+});
+
+checkinRouter.post("/manual", checkinLimiter, manualCheckinLimiter, async (req, res) => {
+  const input = manualBody.parse(req.body);
+  const result = await checkInManual({ ...input, staffId: req.user!.id });
+  if (result.result === "invalid") {
+    res.locals.manualCheckinFailed = true;
+    console.warn(`[checkin] wrong typed-in ticket details from user ${req.user!.id}`);
+  }
   res.json(result);
 });
 

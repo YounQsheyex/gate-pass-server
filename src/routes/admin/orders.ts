@@ -8,7 +8,7 @@ import { requireAuth } from "../../middleware/auth.js";
 import { escapeRegex, normalizePhone } from "../../lib/util.js";
 import { objectId, pagination } from "../../lib/validate.js";
 import { cancelOrder, confirmOrder, deliverTickets, whatsappLink } from "../../services/orders.js";
-import { ticketShortId } from "../../services/tickets.js";
+import { ticketEntryCode, ticketShortId } from "../../services/tickets.js";
 import { renderTicketsPdf } from "../../services/ticketPdf.js";
 
 export const adminOrdersRouter = Router();
@@ -83,6 +83,7 @@ adminOrdersRouter.get("/:id", async (req, res) => {
       tickets: tickets.map((t) => ({
         id: String(t._id),
         shortId: ticketShortId(t._id),
+        entryCode: ticketEntryCode(t),
         ticketTypeName: t.ticketTypeName,
         status: t.status,
         checkedInAt: t.checkedInAt ?? null,

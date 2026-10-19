@@ -22,6 +22,7 @@ export async function createOrder(input: CreateOrderInput) {
   const event = await Event.findById(input.eventId);
   if (!event || event.status !== "published") throw new HttpError(404, "Event not found");
   if (event.startsAt.getTime() < Date.now()) throw new HttpError(400, "This event has already started");
+  if (event.soldOut) throw new HttpError(409, "This event is sold out");
 
   // Merge duplicate lines and validate against the event's ticket types.
   const merged = new Map<string, number>();
@@ -35,6 +36,7 @@ export async function createOrder(input: CreateOrderInput) {
   const lines = [...merged].map(([ticketTypeId, quantity]) => {
     const tt = types.find((t) => t._id.equals(ticketTypeId));
     if (!tt) throw new HttpError(400, "Unknown ticket type");
+    if (tt.soldOut) throw new HttpError(409, `"${tt.name}" is sold out`);
     if (quantity > tt.maxPerOrder) {
       throw new HttpError(400, `You can buy at most ${tt.maxPerOrder} "${tt.name}" tickets per order`);
     }

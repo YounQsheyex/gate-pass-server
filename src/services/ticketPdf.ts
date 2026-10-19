@@ -9,7 +9,7 @@ import { env } from "../config/env.js";
 import { Event } from "../models/Event.js";
 import type { OrderDoc } from "../models/Order.js";
 import type { TicketDoc } from "../models/Ticket.js";
-import { ticketShortId, ticketToken } from "./tickets.js";
+import { ticketEntryCode, ticketToken } from "./tickets.js";
 
 const require = createRequire(import.meta.url);
 const font = (pkg: string, file: string) => require.resolve(`@fontsource/${pkg}/files/${file}`);
@@ -148,7 +148,7 @@ export async function renderTicketsPdf(
       .font("bold")
       .fontSize(13)
       .fillColor(C.ink)
-      .text(`#${ticketShortId(ticket._id)}`, M, qrY + qrSize + 22, { width: inner, align: "center", characterSpacing: 1 });
+      .text(`Entry code  ${ticketEntryCode(ticket)}`, M, qrY + qrSize + 22, { width: inner, align: "center", characterSpacing: 1 });
 
     // --- Holder + order
     const infoY = qrY + qrSize + 52;

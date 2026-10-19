@@ -98,3 +98,16 @@ export const checkinLimiter = limiter("checkin", {
   limit: 120,
   keyGenerator: (req) => `user:${req.user?.id ?? "anon"}`,
 });
+
+/**
+ * Typed-in check-ins. Only wrong entry code / reference pairs count, so a busy gate is
+ * never slowed down, but someone trying combinations is stopped after a handful.
+ */
+export const manualCheckinLimiter = limiter("checkin-manual", {
+  windowMs: 10 * 60_000,
+  limit: 10,
+  keyGenerator: (req) => `user:${req.user?.id ?? "anon"}`,
+  requestWasSuccessful: (_req, res) => res.locals.manualCheckinFailed !== true,
+  skipSuccessfulRequests: true,
+  message: { error: "Too many wrong entry codes. Typed entry is paused for 10 minutes; use the camera or check the order in Orders." },
+});

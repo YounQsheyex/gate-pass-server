@@ -41,6 +41,35 @@ export function signTicket(ticketId: Types.ObjectId, eventId: Types.ObjectId): s
   return PREFIX + Buffer.concat([payload, signature]).toString("base64url");
 }
 
+/**
+ * The ticket's entry code, for typing in at the gate when the QR can't be scanned.
+ *
+ * It's 40 bits of a signature over the ticket id, made with the same private key as the QR
+ * (with its own label, so it never equals part of the QR's signature). Without that key the
+ * codes can't be worked out, not even from another ticket in the same order. Ed25519
+ * signatures are deterministic, so a ticket's code never changes and nothing is stored.
+ */
+const ENTRY_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // Crockford base32: no I, L, O, U
+
+export function entryCodeFor(ticketId: Types.ObjectId): string {
+  const sig = sign(null, Buffer.concat([Buffer.from("entry-code:v1:"), ticketId.id]), keys().privateKey);
+  let bits = 0n;
+  for (const b of sig.subarray(0, 5)) bits = (bits << 8n) | BigInt(b);
+  let out = "";
+  for (let i = 0; i < 8; i++) {
+    out = ENTRY_CODE_ALPHABET[Number(bits & 31n)] + out;
+    bits >>= 5n;
+  }
+  return `${out.slice(0, 4)}-${out.slice(4)}`;
+}
+
+/** "abcd efgh", "ABCDEFGH", "ABCD-EFGO" → "ABCD-EFG0" (null if it can't be an entry code). */
+export function normalizeEntryCode(input: string): string | null {
+  const s = input.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+  if (!/^[0-9A-HJKMNP-TV-Z]{8}$/.test(s)) return null;
+  return `${s.slice(0, 4)}-${s.slice(4)}`;
+}
+
 export type VerifiedToken = { ticketId: Types.ObjectId; eventId: Types.ObjectId };
 
 /** Returns the ids if the signature is genuine, otherwise null. Does not touch the database. */

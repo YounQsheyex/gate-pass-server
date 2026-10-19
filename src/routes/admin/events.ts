@@ -20,6 +20,7 @@ const ticketTypeInput = z.object({
   price: z.number().int().min(0),
   quantity: z.number().int().min(0).max(1_000_000),
   maxPerOrder: z.number().int().min(1).max(50).default(10),
+  soldOut: z.boolean().default(false),
 });
 
 const eventInput = z.object({
@@ -45,6 +46,10 @@ const eventInput = z.object({
     .or(z.literal(""))
     .default(""),
   status: z.enum(EVENT_STATUSES).default("draft"),
+  soldOut: z.boolean().default(false),
+  showTicketsLeft: z.boolean().default(true),
+  featured: z.boolean().default(true),
+  isMain: z.boolean().default(false),
   ticketTypes: z.array(ticketTypeInput).max(20).default([]),
 });
 
@@ -109,6 +114,10 @@ function adminShape(e: EventDoc, types: TicketTypeDoc[]) {
     endsAt: e.endsAt ?? null,
     coverImageUrl: e.coverImageUrl,
     status: e.status,
+    soldOut: Boolean(e.soldOut),
+    showTicketsLeft: e.showTicketsLeft !== false,
+    featured: e.featured !== false,
+    isMain: Boolean(e.isMain),
     ticketTypes: types
       .filter((t) => t.event.equals(e._id))
       .sort((a, b) => a.position - b.position)
@@ -119,7 +128,9 @@ function adminShape(e: EventDoc, types: TicketTypeDoc[]) {
         price: t.price,
         quantity: t.quantity,
         sold: t.sold,
+        left: Math.max(0, t.quantity - t.sold),
         maxPerOrder: t.maxPerOrder,
+        soldOut: Boolean(t.soldOut),
       })),
   };
 }
@@ -139,8 +150,22 @@ adminEventsRouter.get("/:id", requireAuth("admin"), async (req, res) => {
   res.json({ event: { ...adminShape(event, types), stats: stats(event._id) } });
 });
 
+/**
+ * Home page placement. The main event is always listed (main implies featured), hiding an
+ * event from the home page takes away its main spot, and only one event is main at a time.
+ */
+function placement(input: { featured: boolean; isMain: boolean }) {
+  const isMain = input.isMain;
+  return { isMain, featured: isMain ? true : input.featured };
+}
+
+async function makeOnlyMain(id: Types.ObjectId) {
+  await Event.updateMany({ _id: { $ne: id }, isMain: true }, { $set: { isMain: false } });
+}
+
 adminEventsRouter.post("/", requireAuth("admin"), async (req, res) => {
-  const { ticketTypes, ...input } = eventInput.parse(req.body);
+  const { ticketTypes, ...parsed } = eventInput.parse(req.body);
+  const input = { ...parsed, ...placement(parsed) };
   const event = await Event.create({
     ...input,
     endsAt: input.endsAt ?? undefined,
@@ -149,6 +174,7 @@ adminEventsRouter.post("/", requireAuth("admin"), async (req, res) => {
   const types = await TicketType.insertMany(
     ticketTypes.map(({ id: _id, ...t }, position) => ({ ...t, event: event._id, position, sold: 0 })),
   );
+  if (event.isMain) await makeOnlyMain(event._id);
   res.status(201).json({ event: adminShape(event, types) });
 });
 
@@ -159,7 +185,8 @@ adminEventsRouter.post("/", requireAuth("admin"), async (req, res) => {
  */
 adminEventsRouter.patch("/:id", requireAuth("admin"), async (req, res) => {
   const id = objectId.parse(req.params.id);
-  const { ticketTypes: wanted, ...input } = eventInput.parse(req.body);
+  const { ticketTypes: wanted, ...parsed } = eventInput.parse(req.body);
+  const input = { ...parsed, ...placement(parsed) };
   const event = await Event.findById(id);
   if (!event) throw new HttpError(404, "Event not found");
   const current = await TicketType.find({ event: event._id });
@@ -195,6 +222,10 @@ adminEventsRouter.patch("/:id", requireAuth("admin"), async (req, res) => {
         endsAt: input.endsAt ?? null,
         coverImageUrl: input.coverImageUrl,
         status: input.status,
+        soldOut: input.soldOut,
+        showTicketsLeft: input.showTicketsLeft,
+        featured: input.featured,
+        isMain: input.isMain,
       },
     },
   );
@@ -212,6 +243,7 @@ adminEventsRouter.patch("/:id", requireAuth("admin"), async (req, res) => {
       price: t.price,
       quantity: t.quantity,
       maxPerOrder: t.maxPerOrder,
+      soldOut: t.soldOut,
       position,
     };
     if (!t.id) {
@@ -227,9 +259,63 @@ adminEventsRouter.patch("/:id", requireAuth("admin"), async (req, res) => {
     }
   }
 
+  if (input.isMain) await makeOnlyMain(event._id);
+
   const [updated, types] = await Promise.all([
     Event.findById(event._id),
     TicketType.find({ event: event._id }),
   ]);
   res.json({ event: adminShape(updated!, types) });
+});
+
+/** Quick home-page controls from the events list: make main, or show/hide on the home page. */
+adminEventsRouter.patch("/:id/placement", requireAuth("admin"), async (req, res) => {
+  const id = objectId.parse(req.params.id);
+  const body = z.object({ featured: z.boolean().optional(), isMain: z.boolean().optional() }).parse(req.body);
+  const event = await Event.findById(id);
+  if (!event) throw new HttpError(404, "Event not found");
+
+  const next = placement({
+    featured: body.featured ?? event.featured !== false,
+    // Hiding the main event from the home page also takes away its main spot.
+    isMain: body.featured === false ? false : (body.isMain ?? Boolean(event.isMain)),
+  });
+  await Event.updateOne({ _id: id }, { $set: next });
+  if (next.isMain) await makeOnlyMain(event._id);
+  res.json({ featured: next.featured, isMain: next.isMain });
+});
+
+/**
+ * Deletes an event for good. Only allowed while nobody has paid or is holding tickets:
+ * deleting a paid event would leave buyers with tickets for an event that no longer exists.
+ * For an event with sales, cancel and refund its orders first, or set it to Cancelled.
+ */
+adminEventsRouter.delete("/:id", requireAuth("admin"), async (req, res) => {
+  const id = objectId.parse(req.params.id);
+  const event = await Event.findById(id);
+  if (!event) throw new HttpError(404, "Event not found");
+
+  const [paid, pending] = await Promise.all([
+    Order.countDocuments({ event: id, status: "paid" }),
+    Order.countDocuments({ event: id, status: "pending" }),
+  ]);
+  if (paid > 0) {
+    throw new HttpError(
+      409,
+      `${paid} order${paid === 1 ? " has" : "s have"} been paid for this event, so it can't be deleted. Set it to Cancelled to take it off the site, or cancel and refund those orders first.`,
+    );
+  }
+  if (pending > 0) {
+    throw new HttpError(
+      409,
+      `${pending} order${pending === 1 ? " is" : "s are"} waiting for payment. Cancel ${pending === 1 ? "it" : "them"} in Orders first, then delete the event.`,
+    );
+  }
+
+  // Leftovers from expired or cancelled orders go with it.
+  await Ticket.deleteMany({ event: id });
+  await Order.deleteMany({ event: id, status: { $in: ["expired", "cancelled"] } });
+  await TicketType.deleteMany({ event: id });
+  await Event.deleteOne({ _id: id });
+  res.json({ deleted: true });
 });

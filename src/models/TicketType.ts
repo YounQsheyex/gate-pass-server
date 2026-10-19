@@ -16,6 +16,8 @@ const ticketTypeSchema = new Schema(
     /** Tickets held by pending orders plus tickets paid for. */
     sold: { type: Number, default: 0, min: 0 },
     maxPerOrder: { type: Number, default: 10, min: 1 },
+    /** Marked sold out by an admin, whatever is left. */
+    soldOut: { type: Boolean, default: false },
     /** Display order on the event page. */
     position: { type: Number, default: 0 },
   },

@@ -17,6 +17,14 @@ const eventSchema = new Schema(
     endsAt: { type: Date },
     coverImageUrl: { type: String, trim: true, default: "" },
     status: { type: String, enum: EVENT_STATUSES, default: "draft", index: true },
+    /** Marked sold out by an admin: the event stays on the site but nobody can order. */
+    soldOut: { type: Boolean, default: false },
+    /** Show how many tickets are left in each category on the event page. */
+    showTicketsLeft: { type: Boolean, default: true },
+    /** Listed on the home page. Off hides it there; its own page and link still work. */
+    featured: { type: Boolean, default: true },
+    /** The one event shown big at the top of the home page. At most one event has this on. */
+    isMain: { type: Boolean, default: false },
   },
   { timestamps: true },
 );
