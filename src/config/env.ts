@@ -19,7 +19,7 @@ const schema = z.object({
   PROXY_SECRET: z.string().min(16, "PROXY_SECRET should be at least 16 random characters").optional().or(z.literal("").transform(() => undefined)),
 
   /** Name printed on tickets and in emails. */
-  BRAND_NAME: z.string().default("Gatepass"),
+  BRAND_NAME: z.string().default("The Chill Circle"),
   /** Public URL of the frontend, used for links in emails. */
   APP_URL: z.string().url().default("http://localhost:3000"),
 
@@ -43,7 +43,7 @@ const schema = z.object({
   SMTP_SECURE: bool.default(false),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  /** Sender, e.g. "Gatepass Tickets <tickets@yourdomain.com>". With Resend, the domain must be verified there. */
+  /** Sender, e.g. "The Chill Circle <tickets@yourdomain.com>". With Resend, the domain must be verified there. */
   MAIL_FROM: z.string().default("Tickets <no-reply@localhost>"),
   /** Optional address buyers' replies go to (e.g. your support inbox). */
   MAIL_REPLY_TO: z.email().optional().or(z.literal("").transform(() => undefined)),
@@ -66,7 +66,7 @@ const schema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
-  CLOUDINARY_FOLDER: z.string().default("gatepass/events"),
+  CLOUDINARY_FOLDER: z.string().default("the-chill-circle/events"),
 });
 
 const parsed = schema.safeParse(process.env);

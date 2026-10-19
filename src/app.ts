@@ -23,7 +23,12 @@ export function createApp() {
   app.set("trust proxy", env.TRUST_PROXY);
 
   app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGIN.split(",").map((o) => o.trim()), credentials: true }));
+  app.use(
+    cors({
+      origin: env.CORS_ORIGIN.split(",").map((o) => o.trim()),
+      credentials: true,
+    }),
+  );
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());
 
@@ -37,7 +42,12 @@ export function createApp() {
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       next();
     },
-    express.static(UPLOAD_DIR, { maxAge: "30d", immutable: true, index: false, dotfiles: "deny" }),
+    express.static(UPLOAD_DIR, {
+      maxAge: "30d",
+      immutable: true,
+      index: false,
+      dotfiles: "deny",
+    }),
   );
   app.use("/api", apiLimiter);
 

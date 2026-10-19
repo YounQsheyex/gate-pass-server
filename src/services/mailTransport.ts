@@ -38,7 +38,7 @@ export const mailProvider = env.RESEND_API_KEY ? "Resend" : env.SMTP_HOST ? `SMT
 if (env.RESEND_API_KEY && /@localhost>?$/.test(env.MAIL_FROM)) {
   console.warn(
     "[mail] RESEND_API_KEY is set but MAIL_FROM is still the placeholder. Set MAIL_FROM to an address on a domain " +
-      'you verified in Resend, e.g. "Gatepass Tickets <tickets@yourdomain.com>". For a quick test you can use ' +
+      'you verified in Resend, e.g. "The Chill Circle <tickets@yourdomain.com>". For a quick test you can use ' +
       '"onboarding@resend.dev", which only delivers to your own Resend account email.',
   );
 }

@@ -52,7 +52,7 @@ export async function sendTicketsEmail(order: OrderDoc, tickets: TicketDoc[]) {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
     <table role="presentation" width="100%" style="max-width:480px;background:#fff;border-radius:12px;padding:24px" cellpadding="0" cellspacing="0">
       <tr><td>
-        <div style="font-size:13px;color:#737373">Your tickets</div>
+        <div style="font-size:13px;color:#737373">${esc(env.BRAND_NAME)} · Your tickets</div>
         <h1 style="font-size:22px;margin:4px 0 12px">${esc(event.title)}</h1>
         <div style="font-size:14px;line-height:1.6">
           ${esc(formatDate(event.startsAt))}<br/>${esc(event.venue)}
